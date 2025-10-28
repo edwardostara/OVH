@@ -12,6 +12,10 @@ import ovh
 import re
 import traceback
 import requests
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 # 导入API认证中间件
 from api_auth_middleware import init_api_auth
@@ -2458,15 +2462,20 @@ def get_servers():
     show_api_servers = request.args.get('showApiServers', 'false').lower() == 'true'
     force_refresh = request.args.get('forceRefresh', 'false').lower() == 'true'
     
+    # 标记是否使用了过期缓存
+    using_expired_cache = False
+    cache_age_minutes = 0
+    
     # 检查缓存是否有效
     cache_valid = False
     if server_list_cache["timestamp"] is not None:
         cache_age = time.time() - server_list_cache["timestamp"]
+        cache_age_minutes = int(cache_age / 60)
         cache_valid = cache_age < server_list_cache["cache_duration"]
     
     # 如果缓存有效且不是强制刷新，使用缓存
     if cache_valid and not force_refresh:
-        add_log("INFO", f"使用缓存的服务器列表 (缓存时间: {int((time.time() - server_list_cache['timestamp']) / 60)} 分钟前)")
+        add_log("INFO", f"使用缓存的服务器列表 (缓存时间: {cache_age_minutes} 分钟前)")
         server_plans = server_list_cache["data"]
     elif show_api_servers and get_ovh_client():
         # 缓存失效或强制刷新，从API重新加载
@@ -2490,22 +2499,28 @@ def get_servers():
             add_log("INFO", f"服务器硬件信息统计: CPU={cpu_count}/{len(server_plans)}, 内存={memory_count}/{len(server_plans)}, "
                    f"存储={storage_count}/{len(server_plans)}, 带宽={bandwidth_count}/{len(server_plans)}")
         else:
-            # API返回空数据，尝试使用旧的缓存或全局变量
+            # API返回空数据或调用失败，尝试使用旧的缓存
             add_log("WARNING", f"从OVH API加载服务器列表失败或返回空数据")
             if server_list_cache["data"] and len(server_list_cache["data"]) > 0:
-                # 内存缓存有数据，使用缓存
+                # 内存缓存有数据，使用过期缓存
                 server_plans = server_list_cache["data"]
-                add_log("INFO", f"使用内存缓存数据（共 {len(server_plans)} 台服务器）")
+                using_expired_cache = True
+                add_log("WARNING", f"⚠️ OVH API 调用失败，使用过期缓存数据（{cache_age_minutes} 分钟前，共 {len(server_plans)} 台服务器）")
             elif len(server_plans) > 0:
                 # 全局变量有数据（可能是从文件加载的），使用全局变量
-                add_log("INFO", f"使用全局服务器数据（共 {len(server_plans)} 台服务器）")
+                using_expired_cache = True
+                add_log("WARNING", f"⚠️ OVH API 调用失败，使用全局服务器数据（可能过期，共 {len(server_plans)} 台服务器）")
             else:
-                # 完全没有数据，返回空数组
-                server_plans = []
-                add_log("ERROR", "API返回空数据且没有缓存可用，返回空列表！")
+                # 完全没有数据，返回错误
+                add_log("ERROR", "❌ OVH API 调用失败且没有缓存数据可用！")
+                return jsonify({
+                    "error": "No data available",
+                    "message": "无法获取服务器列表：OVH API 调用失败且没有缓存数据"
+                }), 503
     elif not cache_valid and server_list_cache["data"]:
-        # 缓存过期但未认证，使用过期缓存
-        add_log("INFO", "缓存已过期但未配置API，使用过期缓存数据")
+        # 缓存过期但未认证或未配置 OVH API，使用过期缓存
+        using_expired_cache = True
+        add_log("WARNING", f"⚠️ 缓存已过期（{cache_age_minutes} 分钟前）但未配置 OVH API，使用过期缓存数据")
         server_plans = server_list_cache["data"]
     
     # 确保返回的服务器对象具有所有必要字段
@@ -2549,6 +2564,8 @@ def get_servers():
         "servers": validated_servers,
         "cacheInfo": {
             "cached": cache_valid,
+            "usingExpiredCache": using_expired_cache,  # 标记是否使用过期缓存
+            "cacheAgeMinutes": cache_age_minutes,  # 缓存年龄（分钟）
             "timestamp": server_list_cache["timestamp"],
             "cacheAge": int(time.time() - server_list_cache["timestamp"]) if server_list_cache["timestamp"] else None,
             "cacheDuration": server_list_cache["cache_duration"],
@@ -2556,7 +2573,13 @@ def get_servers():
             "autoRefreshEnabled": True
         }
     }
-    return jsonify(response_data)
+    
+    # 如果使用了过期缓存，在响应头中添加警告
+    response = jsonify(response_data)
+    if using_expired_cache:
+        response.headers['X-Cache-Warning'] = f'Using expired cache ({cache_age_minutes} minutes old)'
+    
+    return response
 
 @app.route('/api/availability/<plan_code>', methods=['GET'])
 def get_availability(plan_code):
@@ -5598,6 +5621,18 @@ if __name__ == '__main__':
     # Add initial log
     add_log("INFO", "Server started")
     
+    # 从 .env 读取配置
+    PORT = int(os.getenv('PORT', 5000))
+    DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
+    
+    # 打印配置信息
+    print("=" * 60)
+    print(f"🚀 后端服务启动配置")
+    print(f"   端口: {PORT}")
+    print(f"   调试模式: {'开启' if DEBUG else '关闭'}")
+    print(f"   API密钥验证: {'开启' if os.getenv('ENABLE_API_KEY_AUTH', 'true').lower() == 'true' else '关闭'}")
+    print("=" * 60)
+    
     # Run the Flask app
-    # 生产环境建议关闭 debug，避免多线程问题
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    # 从 .env 文件读取端口和调试模式配置
+    app.run(host='0.0.0.0', port=PORT, debug=DEBUG)

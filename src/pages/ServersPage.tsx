@@ -206,6 +206,18 @@ const ServersPage = () => {
       // 调试输出查看原始服务器数据
       console.log("原始服务器数据:", response.data);
       
+      // 检查是否使用了过期缓存
+      if (response.data?.cacheInfo?.usingExpiredCache) {
+        const ageMinutes = response.data.cacheInfo.cacheAgeMinutes;
+        const ageHours = Math.floor(ageMinutes / 60);
+        const ageText = ageHours > 0 ? `${ageHours}小时` : `${ageMinutes}分钟`;
+        
+        toast.warning(`⚠️ 正在使用过期缓存数据（${ageText}前），OVH API 暂时无法访问`, {
+          duration: 5000,
+        });
+        console.warn(`使用过期缓存数据（${ageText}前）`);
+      }
+      
       // 确保我们从正确的数据结构中获取服务器列表
       let serversList = [];
       
