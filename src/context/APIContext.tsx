@@ -60,6 +60,15 @@ export const API_Provider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const loadAPIKeys = async () => {
       try {
+        // 先检查是否有 API_SECRET_KEY
+        const apiKey = localStorage.getItem('api_secret_key');
+        if (!apiKey) {
+          // 如果没有密钥，不尝试加载配置
+          console.log('未设置 API 安全密钥，跳过配置加载');
+          setIsLoading(false);
+          return;
+        }
+        
         const response = await api.get(`/settings`);
         const data = response.data;
         

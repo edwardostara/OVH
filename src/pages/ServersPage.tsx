@@ -19,10 +19,6 @@ import { apiEvents } from "@/context/APIContext";
 import { OVH_DATACENTERS, DatacenterInfo } from "@/config/ovhConstants"; // Import from new location
 import { API_URL } from "@/config/constants";
 
-// 定义缓存相关的常量
-const CACHE_KEY = 'ovh-servers-cache';
-const CACHE_EXPIRY = 2 * 60 * 60 * 1000; // 缓存2小时过期（与后端保持一致）
-
 // 全局CSS样式
 const globalStyles = `
 .datacenter-scrollbar::-webkit-scrollbar {
@@ -174,84 +170,10 @@ const ServersPage = () => {
   // 使用ref存储订阅列表，确保排序时使用最新值
   const subscribedServersRef = useRef<Set<string>>(subscribedServers);
 
-  // 检查缓存是否过期
-  const isCacheExpired = (): boolean => {
-    const cacheData = localStorage.getItem(CACHE_KEY);
-    if (!cacheData) return true;
-    
-    try {
-      const { timestamp } = JSON.parse(cacheData);
-      const now = new Date().getTime();
-      return now - timestamp > CACHE_EXPIRY;
-    } catch (error) {
-      console.error("解析缓存数据出错:", error);
-      return true;
-    }
-  };
-
-  // 从缓存加载数据
-  const loadFromCache = (): boolean => {
-    try {
-      const cacheData = localStorage.getItem(CACHE_KEY);
-      if (!cacheData) return false;
-      
-      const { data, timestamp } = JSON.parse(cacheData);
-      if (!data || !Array.isArray(data)) return false;
-      
-      console.log(`💾 从缓存加载服务器数据... (${data.length} 台服务器)`);
-      
-      // 初始化数据中心选择状态
-      const dcSelections: Record<string, Record<string, boolean>> = {};
-      data.forEach(server => {
-        dcSelections[server.planCode] = {};
-        // 对所有固定的数据中心进行初始化
-        OVH_DATACENTERS.forEach(dc => {
-          dcSelections[server.planCode][dc.code.toUpperCase()] = false;
-        });
-      });
-      
-      setSelectedDatacenters(dcSelections);
-      setServers(data);
-      
-      // 不要直接设置filteredServers，让排序useEffect处理
-      // 这样可以确保订阅服务器正确排序
-      // if (!searchTerm && selectedDatacenter === "all") {
-      //   setFilteredServers(data);
-      // }
-      
-      setLastUpdated(new Date(timestamp));
-      setIsLoading(false);
-      
-      console.log(`✅ 缓存数据加载完成: ${data.length} 台服务器`);
-      return true;
-    } catch (error) {
-      console.error("加载缓存数据出错:", error);
-      return false;
-    }
-  };
-
-  // 保存数据到缓存
-  const saveToCache = (data: ServerPlan[]) => {
-    try {
-      const cacheData = {
-        data,
-        timestamp: new Date().getTime()
-      };
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-      console.log("服务器数据已保存到缓存");
-    } catch (error) {
-      console.error("保存数据到缓存出错:", error);
-    }
-  };
+  // 前端缓存已移除（后端有缓存）
 
   // Fetch servers from the backend
   const fetchServers = async (forceRefresh = false, overrideAuth?: boolean) => {
-    // 如果不是强制刷新，并且已从缓存加载过数据，并且缓存未过期，则跳过
-    if (!forceRefresh && hasLoadedFromCache.current && !isCacheExpired()) {
-      console.log("使用现有数据，缓存未过期，跳过API请求");
-      return;
-    }
-
     // 如果当前已经在从API获取数据，则跳过此次请求
     if (isActuallyFetching) {
       console.log("已在从API获取服务器数据，跳过此次冗余请求");
@@ -366,9 +288,6 @@ const ServersPage = () => {
       // 更新最后刷新时间
       setLastUpdated(new Date());
       
-      // 保存到缓存
-      saveToCache(formattedServers);
-      
       console.log(`✅ 服务器数据已设置: ${formattedServers.length} 台服务器`);
       console.log(`🔍 setServers后，ref.size = ${subscribedServersRef.current.size}`);
       
@@ -403,14 +322,7 @@ const ServersPage = () => {
       });
       setIsLoading(false); // 确保isLoading在出错时也更新
       
-      // 如果API请求失败但有缓存数据，尝试从缓存加载
-      if (!hasLoadedFromCache.current) {
-        const loaded = loadFromCache();
-        if (loaded) {
-          toast.info("使用缓存数据显示服务器列表");
-          hasLoadedFromCache.current = true;
-        }
-      }
+      // 前端缓存已移除，直接从后端获取（后端有缓存）
     } finally {
       setIsActuallyFetching(false); // 确保无论成功或失败都重置状态
     }
@@ -1081,27 +993,10 @@ const ServersPage = () => {
         console.log(`⚠️ 未认证，跳过加载订阅列表`);
       }
       
-      // 然后加载服务器列表（此时ref已有值，排序会使用最新数据）
-      console.log(`🔍 加载缓存前，ref.size = ${subscribedServersRef.current.size}`);
-      const loadedFromCache = loadFromCache();
-      hasLoadedFromCache.current = loadedFromCache;
-      
-      if (loadedFromCache) {
-        console.log("✅ 成功从缓存加载数据");
-        console.log(`🔍 缓存加载后，即将排序，ref.size = ${subscribedServersRef.current.size}`);
-        
-        // 如果缓存过期，则在后台刷新数据（不阻塞显示）
-        if (isCacheExpired()) {
-          console.log("⏰ 缓存已过期，在后台刷新数据");
-          // 后台刷新时，订阅列表ref已经有值，不会造成竞态
-          fetchServers(true); // 后台刷新，不需要await
-        }
-      } else {
-        // 如果缓存加载失败，则直接从API获取（阻塞等待）
-        console.log("📡 缓存加载失败或无缓存，从API获取数据");
-        await fetchServers(true); // 等待完成，确保数据加载后再继续
-        console.log("✅ API数据加载完成");
-      }
+      // 直接从后端获取数据（后端已有缓存机制）
+      console.log("📡 从后端API获取服务器数据");
+      await fetchServers(true); // 等待完成，确保数据加载后再继续
+      console.log("✅ 服务器数据加载完成");
     };
     
     loadInitialData();

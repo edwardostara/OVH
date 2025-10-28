@@ -97,32 +97,40 @@ const SettingsPage = () => {
       return;
     }
     
-    // Validate required OVH API fields
-    if (!formValues.appKey || !formValues.appSecret || !formValues.consumerKey) {
-      toast.error("请填写所有必填字段");
-      return;
-    }
-    
     setIsSaving(true);
     try {
-      // 保存网站安全密钥到 localStorage
+      // 1. 先保存网站安全密钥到 localStorage（这个总是要保存的）
       setApiSecretKey(formValues.apiSecretKey);
       
-      // 保存 OVH API 配置到后端
-      await setAPIKeys(formValues);
-      const isValid = await checkAuthentication();
+      // 2. 检查是否填写了 OVH API 配置
+      const hasOVHConfig = formValues.appKey && formValues.appSecret && formValues.consumerKey;
       
-      if (isValid) {
-        toast.success("所有设置已保存并验证");
-        // 自动导航到服务器列表页面
-        navigate("/servers");
+      if (hasOVHConfig) {
+        // 如果填写了 OVH API，则保存并验证
+        await setAPIKeys(formValues);
+        const isValid = await checkAuthentication();
+        
+        if (isValid) {
+          toast.success("所有设置已保存并验证通过");
+          // 刷新页面加载新配置
+          setTimeout(() => {
+            window.location.reload();
+          }, 500);
+        } else {
+          toast.warning("OVH API 配置已保存，但验证失败，请检查密钥是否正确");
+          setIsSaving(false);
+        }
       } else {
-        toast.warning("设置已保存，但OVH API验证失败");
+        // 如果没填写 OVH API，只保存了安全密钥
+        toast.success("网站安全密钥已保存，页面将刷新");
+        // 延迟刷新让用户看到提示
+        setTimeout(() => {
+          window.location.reload();
+        }, 800);
       }
     } catch (error) {
       console.error("Error saving settings:", error);
       toast.error("保存设置失败");
-    } finally {
       setIsSaving(false);
     }
   };
@@ -200,7 +208,7 @@ const SettingsPage = () => {
                 <div className="space-y-3 sm:space-y-4">
                   <div>
                     <label className="block text-cyber-muted mb-1 text-xs sm:text-sm">
-                      应用密钥 (APP KEY) <span className="text-red-400">*</span>
+                      应用密钥 (APP KEY)
                     </label>
                     <div className="relative">
                       <input
@@ -210,7 +218,6 @@ const SettingsPage = () => {
                         onChange={handleChange}
                         className="cyber-input w-full pr-10 text-sm"
                         placeholder="xxxxxxxxxxxxxxxx"
-                        required
                       />
                       <button
                         type="button"
@@ -234,7 +241,7 @@ const SettingsPage = () => {
                   
                   <div>
                     <label className="block text-cyber-muted mb-1">
-                      应用密钥 (APP SECRET) <span className="text-red-400">*</span>
+                      应用密钥 (APP SECRET)
                     </label>
                     <div className="relative">
                       <input
@@ -244,7 +251,6 @@ const SettingsPage = () => {
                         onChange={handleChange}
                         className="cyber-input w-full pr-10"
                         placeholder="xxxxxxxxxxxxxxxx"
-                        required
                       />
                       <button
                         type="button"
@@ -268,7 +274,7 @@ const SettingsPage = () => {
                   
                   <div>
                     <label className="block text-cyber-muted mb-1">
-                      消费者密钥 (CONSUMER KEY) <span className="text-red-400">*</span>
+                      消费者密钥 (CONSUMER KEY)
                     </label>
                     <div className="relative">
                       <input
@@ -278,7 +284,6 @@ const SettingsPage = () => {
                         onChange={handleChange}
                         className="cyber-input w-full pr-10"
                         placeholder="xxxxxxxxxxxxxxxx"
-                        required
                       />
                       <button
                         type="button"

@@ -51,14 +51,9 @@ export const LOGS_REFRESH_INTERVAL = 5000; // 5秒
 
 /**
  * 服务器列表缓存时长（毫秒）
- * 前后端必须保持一致
+ * 后端缓存使用，前端直接从后端获取
  */
 export const CACHE_EXPIRY = 2 * 60 * 60 * 1000; // 2小时
-
-/**
- * 缓存键名
- */
-export const CACHE_KEY = 'ovh-servers-cache';
 
 // ==================== API配置 ====================
 
